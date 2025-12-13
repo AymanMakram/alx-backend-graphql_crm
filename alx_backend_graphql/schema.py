@@ -6,6 +6,10 @@ class CRMQuery(graphene.ObjectType):
 
     def resolve_hello(self, info):
         return "Hello, GraphQL!"
+    
+
+class Query(graphene.ObjectType):
+    pass
 
 
 class Query(CRMQuery, graphene.ObjectType):

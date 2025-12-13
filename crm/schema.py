@@ -175,3 +175,8 @@ class Mutation(graphene.ObjectType):
     create_order = CreateOrder.Field()
 
 
+class Query(graphene.ObjectType):
+    all_customers = graphene.List(CustomerType)
+
+    def resolve_all_customers(self, info):
+        return Customer.objects.all()
