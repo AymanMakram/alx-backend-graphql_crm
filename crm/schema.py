@@ -39,7 +39,7 @@ class CRMQuery(graphene.ObjectType):
     def resolve_orders(self, info):
         return Order.objects.all()
     
-    
+ 
 class CreateCustomer(graphene.Mutation):
     customer = graphene.Field(CustomerType)
     message = graphene.String()
@@ -53,15 +53,15 @@ class CreateCustomer(graphene.Mutation):
         if Customer.objects.filter(email=email).exists():
             raise ValidationError("Email already exists")
 
-        if phone:
-            if not re.match(r"^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$", phone):
-                raise ValidationError("Invalid phone format")
+        if phone and not re.match(r"^(\+\d{10,15}|\d{3}-\d{3}-\d{4})$", phone):
+            raise ValidationError("Invalid phone format")
 
-        customer = Customer.objects.create(
+        customer = Customer(
             name=name,
             email=email,
             phone=phone
         )
+        customer.save()
 
         return CreateCustomer(
             customer=customer,
@@ -83,11 +83,11 @@ class BulkCreateCustomers(graphene.Mutation):
         input = graphene.List(BulkCustomerInput, required=True)
 
     def mutate(self, info, input):
-        created = []
+        created_customers = []
         errors = []
 
         with transaction.atomic():
-            for idx, data in enumerate(input):
+            for index, data in enumerate(input):
                 try:
                     if Customer.objects.filter(email=data.email).exists():
                         raise ValidationError("Email already exists")
@@ -97,17 +97,22 @@ class BulkCreateCustomers(graphene.Mutation):
                     ):
                         raise ValidationError("Invalid phone format")
 
-                    customer = Customer.objects.create(
+                    customer = Customer(
                         name=data.name,
                         email=data.email,
                         phone=data.phone
                     )
-                    created.append(customer)
+                    customer.save()
+                    created_customers.append(customer)
 
                 except Exception as e:
-                    errors.append(f"Record {idx + 1}: {str(e)}")
+                    errors.append(f"Record {index + 1}: {str(e)}")
 
-        return BulkCreateCustomers(customers=created, errors=errors)
+        return BulkCreateCustomers(
+            customers=created_customers,
+            errors=errors
+        )
+
     
 
 class CreateProduct(graphene.Mutation):
@@ -125,11 +130,12 @@ class CreateProduct(graphene.Mutation):
         if stock < 0:
             raise ValidationError("Stock cannot be negative")
 
-        product = Product.objects.create(
+        product = Product(
             name=name,
             price=price,
             stock=stock
         )
+        product.save()
 
         return CreateProduct(product=product)
     
@@ -153,16 +159,16 @@ class CreateOrder(graphene.Mutation):
 
         products = Product.objects.filter(id__in=product_ids)
         if products.count() != len(product_ids):
-            raise ValidationError("One or more product IDs are invalid")
+            raise ValidationError("Invalid product ID")
 
-        total_amount = sum([p.price for p in products])
+        total_amount = sum(product.price for product in products)
 
-        order = Order.objects.create(
+        order = Order(
             customer=customer,
             total_amount=total_amount,
             order_date=order_date or timezone.now()
         )
-
+        order.save()
         order.products.set(products)
 
         return CreateOrder(order=order)
