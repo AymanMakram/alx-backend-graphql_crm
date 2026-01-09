@@ -1,0 +1,1 @@
+0 2 * * 0 "/mnt/c/Users/alemg/OneDrive/Documents/ALX_Pro Dev BE/alx-backend-graphql_crm/crm/cron_jobs/clean_inactive_customers.sh"
