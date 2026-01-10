@@ -1,63 +1,82 @@
 from celery import shared_task
+import requests
 from datetime import datetime
+import json
 
-# Execute the project's GraphQL schema to fetch aggregates
-from .schema import schema
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_kwargs={"max_retries": 3},
+)
+def generate_crm_report():
+    print("Generating CRM report...")
 
-@shared_task
-def generatecrmreport():
-    """
-    Run a GraphQL query against the local schema to fetch:
-      - totalCustomers
-      - totalOrders
-      - totalRevenue
+    graphql_url = "http://localhost:8000/graphql/"
 
-    Append a single-line report to /tmp/crmreportlog.txt in the format:
-      YYYY-MM-DD HH:MM:SS - Report: X customers, Y orders, Z revenue
-    """
-    query = '''
+    query = """
     query {
-      crmReport {
-        totalCustomers
-        totalOrders
-        totalRevenue
-      }
+        crmReport {
+            totalCustomers
+            totalOrders
+            totalRevenue
+        }
     }
-    '''
+    """
 
-    result = schema.execute(query)
-
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    if result.errors:
-        # Join errors into a single message and write as an "error" line
-        error_text = "; ".join(str(e) for e in result.errors)
-        line = f"{timestamp} - Report Error: {error_text}\n"
-    else:
-        data = (result.data or {}).get('crmReport') or {}
-        total_customers = data.get('totalCustomers') or 0
-        total_orders = data.get('totalOrders') or 0
-        total_revenue = data.get('totalRevenue') or 0.0
-
-        line = (
-            f"{timestamp} - Report: "
-            f"{total_customers} customers, {total_orders} orders, {total_revenue} revenue\n"
+    try:
+        response = requests.post(
+            graphql_url,
+            json={"query": query},
+            headers={"Content-Type": "application/json"},
+            timeout=10,
         )
 
-    log_path = '/tmp/crmreportlog.txt'
-    try:
-        with open(log_path, 'a') as fh:
-            fh.write(line)
-    except Exception as e:
-        # Ensure worker logs the failure to write
-        print(f"Failed to write report to {log_path}: {e}")
-        print("Report content:", line)
+        response.raise_for_status()
 
-    # Return a small payload for task inspection/monitoring
-    return {
-        'timestamp': datetime.now().isoformat(),
-        'customers': int(data.get('totalCustomers') or 0) if not result.errors else None,
-        'orders': int(data.get('totalOrders') or 0) if not result.errors else None,
-        'revenue': float(data.get('totalRevenue') or 0.0) if not result.errors else None,
-        'errors': [str(e) for e in (result.errors or [])] if result.errors else []
-    }
+        data = response.json()
+
+        if "errors" in data:
+            raise Exception(data["errors"])
+
+        # ✅ Correct, case-sensitive key
+        report_data = data["data"].get("crmReport", {})
+
+        customer_count = report_data.get("totalCustomers", 0)
+        order_count = report_data.get("totalOrders", 0)
+        total_revenue = report_data.get("totalRevenue", 0)
+
+        # ⬇️ Time bucket (idempotency)
+        timestamp_key = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        log_line = (
+            f"[{timestamp_key}] "
+            f"{customer_count} customers, "
+            f"{order_count} orders, "
+            f"${float(total_revenue):.2f} revenue\n"
+        )
+
+        log_path = "/tmp/crm_report_log.txt"
+
+        # ✅ Idempotent file write (overwrite same minute)
+        logs = {}
+
+        try:
+            with open(log_path, "r") as f:
+                for line in f:
+                    if line.startswith("["):
+                        key = line.split("]")[0] + "]"
+                        logs[key] = line
+        except FileNotFoundError:
+            pass
+
+        logs[f"[{timestamp_key}]"] = log_line
+
+        with open(log_path, "w") as f:
+            f.writelines(logs.values())
+
+        return "CRM report generated successfully."
+
+    except Exception as e:
+        print(f"Error generating CRM report: {e}")
+        raise
