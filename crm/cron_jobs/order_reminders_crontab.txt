@@ -1,0 +1,1 @@
+0 8 * * * "/mnt/c/Users/alemg/OneDrive/Documents/ALX_Pro Dev BE/alx-backend-graphql_crm/venv_linux/bin/python3" "/mnt/c/Users/alemg/OneDrive/Documents/ALX_Pro Dev BE/alx-backend-graphql_crm/crm/cron_jobs/send_order_reminders.py"
