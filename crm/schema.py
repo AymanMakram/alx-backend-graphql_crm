@@ -2,9 +2,9 @@ import graphene
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from .filters import CustomerFilter, ProductFilter, OrderFilter
-from .models import Customer, Product, Order
+# Use absolute import if you want the explicit line the project asked for:
+from crm.models import Customer, Product, Order
 from django.db import transaction
-import re
 
 # --- Types ---
 class CustomerType(DjangoObjectType):
@@ -21,8 +21,11 @@ class ProductType(DjangoObjectType):
         fields = "__all__"
 
     price = graphene.Float()
+
     def resolve_price(self, info):
+        # Ensure Decimal/DecimalField is returned as float
         return float(self.price)
+
 class OrderType(DjangoObjectType):
     class Meta:
         model = Order
@@ -89,8 +92,8 @@ class BulkCreateCustomers(graphene.Mutation):
                         first_name=data.first_name,
                         last_name=data.last_name,
                         email=data.email,
-                        phone_number=data.get('phone_number'),
-                        address=data.get('address')
+                        phone_number=data.phone_number,
+                        address=data.address
                     )
                     success_list.append(new_customer)
             
@@ -162,13 +165,34 @@ class CreateOrder(graphene.Mutation):
 
         return CreateOrder(order=order)
 
-# --- Mutations ---
-class Mutation(graphene.ObjectType):
-    create_customer = CreateCustomer.Field()
-    create_product = CreateProduct.Field()
-    create_order = CreateOrder.Field()
-    bulk_create_customers = BulkCreateCustomers.Field()
+# 1. Define an Output Type for the list of updated products (avoid name collision with ProductType)
+class RestockedProductType(graphene.ObjectType):
+    name = graphene.String()
+    stock = graphene.Int()
 
+class UpdateLowStockProducts(graphene.Mutation):
+    class Arguments:
+        pass # No input arguments needed as it scans the DB
+
+    message = graphene.String()
+    updated_products = graphene.List(RestockedProductType)
+
+    def mutate(self, info):
+        # Find products with stock less than 10
+        low_stock_items = Product.objects.filter(stock__lt=10)
+        updated_list = []
+
+        for product in low_stock_items:
+            product.stock += 10
+            product.save()
+            updated_list.append(RestockedProductType(name=product.name, stock=product.stock))
+
+        return UpdateLowStockProducts(
+            message=f"Successfully restocked {len(updated_list)} products.",
+            updated_products=updated_list
+        )
+
+# --- Queries ---
 class Query(graphene.ObjectType):
     all_customers = DjangoFilterConnectionField(CustomerType, filterset_class=CustomerFilter)
     all_products = DjangoFilterConnectionField(ProductType, filterset_class=ProductFilter)
@@ -190,34 +214,13 @@ class CRMQuery(graphene.ObjectType):
     def resolve_hello(root, info):
         return "Hello, GraphQL!"
 
-schema = graphene.Schema(query=Query, mutation=Mutation)
-
-# 1. Define an Output Type for the list of updated products
-class ProductType(graphene.ObjectType):
-    name = graphene.String()
-    stock = graphene.Int()
-
-class UpdateLowStockProducts(graphene.Mutation):
-    class Arguments:
-        pass # No input arguments needed as it scans the DB
-
-    message = graphene.String()
-    updated_products = graphene.List(ProductType)
-
-    def mutate(self, info):
-        # Find products with stock less than 10
-        low_stock_items = Product.objects.filter(stock__lt=10)
-        updated_list = []
-
-        for product in low_stock_items:
-            product.stock += 10
-            product.save()
-            updated_list.append(ProductType(name=product.name, stock=product.stock))
-
-        return UpdateLowStockProducts(
-            message=f"Successfully restocked {len(updated_list)} products.",
-            updated_products=updated_list
-        )
-
+# --- Mutations (single class with all mutations included) ---
 class Mutation(graphene.ObjectType):
+    create_customer = CreateCustomer.Field()
+    create_product = CreateProduct.Field()
+    create_order = CreateOrder.Field()
+    bulk_create_customers = BulkCreateCustomers.Field()
     update_low_stock_products = UpdateLowStockProducts.Field()
+
+# Create schema after all types/mutations are defined
+schema = graphene.Schema(query=Query, mutation=Mutation)
