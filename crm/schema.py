@@ -3,7 +3,8 @@ from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from .filters import CustomerFilter, ProductFilter, OrderFilter
 # Use absolute import if you want the explicit line the project asked for:
-from crm.models import Customer, Product, Order
+from crm.models import Customer, Order
+from crm.models import Product
 from django.db import transaction
 
 # --- Types ---
