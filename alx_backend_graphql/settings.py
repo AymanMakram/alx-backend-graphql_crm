@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'graphene_django',  # GraphQL
     'crm',              # CRM app
     'django_filters',
+    'django_crontab',
 ]
 
 MIDDLEWARE = [
@@ -122,3 +123,8 @@ STATIC_URL = 'static/'
 GRAPHENE = {
     "SCHEMA": "alx_backend_graphql.schema.schema",
 }
+
+CRONJOBS = [
+    ('*/5 * * * *', 'crm.cron.log_crm_heartbeat'),
+    ('0 */12 * * *', 'crm.cron.update_low_stock'),
+]
