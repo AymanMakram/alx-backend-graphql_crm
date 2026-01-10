@@ -2,10 +2,10 @@ import graphene
 from graphene_django import DjangoObjectType
 from graphene_django.filter import DjangoFilterConnectionField
 from .filters import CustomerFilter, ProductFilter, OrderFilter
-# Use absolute import if you want the explicit line the project asked for:
-from crm.models import Customer, Order
+from .models import Customer, Order
 from crm.models import Product
 from django.db import transaction
+from django.db.models import Sum
 
 # --- Types ---
 class CustomerType(DjangoObjectType):
@@ -24,7 +24,6 @@ class ProductType(DjangoObjectType):
     price = graphene.Float()
 
     def resolve_price(self, info):
-        # Ensure Decimal/DecimalField is returned as float
         return float(self.price)
 
 class OrderType(DjangoObjectType):
@@ -193,11 +192,20 @@ class UpdateLowStockProducts(graphene.Mutation):
             updated_products=updated_list
         )
 
+# --- New: Report Type & resolver to expose aggregates to the GraphQL schema ---
+class CRMReportType(graphene.ObjectType):
+    totalCustomers = graphene.Int()
+    totalOrders = graphene.Int()
+    totalRevenue = graphene.Float()
+
 # --- Queries ---
 class Query(graphene.ObjectType):
     all_customers = DjangoFilterConnectionField(CustomerType, filterset_class=CustomerFilter)
     all_products = DjangoFilterConnectionField(ProductType, filterset_class=ProductFilter)
     all_orders = DjangoFilterConnectionField(OrderType, filterset_class=OrderFilter)
+
+    # Aggregated report available to GraphQL clients (and tasks)
+    crmReport = graphene.Field(CRMReportType)
 
     # These "resolver" functions tell Django how to actually get the data
     def resolve_all_customers(root, info):
@@ -208,6 +216,17 @@ class Query(graphene.ObjectType):
 
     def resolve_all_orders(root, info):
         return Order.objects.select_related('customer', 'product').all()
+
+    def resolve_crmReport(root, info):
+        total_customers = Customer.objects.count()
+        total_orders = Order.objects.count()
+        # Assuming Order model has a `totalamount` field
+        revenue_agg = Order.objects.aggregate(total=Sum('totalamount'))['total'] or 0.0
+        return CRMReportType(
+            totalCustomers=total_customers,
+            totalOrders=total_orders,
+            totalRevenue=float(revenue_agg)
+        )
 
 class CRMQuery(graphene.ObjectType):
     hello = graphene.String()
